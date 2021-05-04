@@ -11,7 +11,7 @@ Knowing Issues
 =====
 * Opentype font (such as Source Han Sans) has a much smaller size when displayed vertically (used like @Source Han Sans). (subtitle renders which origin from VSFilter use GDI to render fonts, but GDI performs badly on opentype fonts.)
 
-Use VSFilterMod in MPC-BE
+Use VSFilterMod in MPC-BE or [MPC-HC](https://github.com/clsid2/mpc-hc)
 ====
 1. run `regsvr32.exe VSFilterMod.dll` with administrator privileges
-2. Select "VSFilter/xy-VSFilter" on the select of Options/Subtitles/Subtitle renderer
+2. Select "VSFilter/xy-VSFilter" on the select of Options/Subtitles/Subtitle renderer (on MPC-BE) or "VSFilter/DirectVobSub" on Options/Playback/Output/Subtitle Renderer (on MPC-HC)
