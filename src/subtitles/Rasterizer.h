@@ -87,7 +87,7 @@ class Rasterizer
     bool fFirstSet;
     CPoint firstp, lastp;
 
-protected:
+public:
     BYTE* mpPathTypes;
     POINT* mpPathPoints;
     size_t mPathPoints;

@@ -24,12 +24,239 @@
 #include "STS.h"
 #include "Rasterizer.h"
 #include "..\SubPic\ISubPic.h"
+#include <dwrite.h>
+
+template <class T> void SafeRelease(T** ppT)
+{
+    if (*ppT)
+    {
+        (*ppT)->Release();
+        *ppT = NULL;
+    }
+}
+class CWord;
+class SpecializedSink : public ID2D1SimplifiedGeometrySink
+{
+public:
+    std::vector<BYTE> mpPathTypes;
+    std::vector<POINT> mpPathPoints;
+    SpecializedSink()
+        : m_cRef(0)
+    {
+    }
+
+    STDMETHOD_(ULONG, AddRef)(THIS)
+    {
+        return InterlockedIncrement(reinterpret_cast<LONG volatile*>(&m_cRef));
+    }
+
+    STDMETHOD_(ULONG, Release)(THIS)
+    {
+        ULONG cRef = static_cast<ULONG>(
+            InterlockedDecrement(reinterpret_cast<LONG volatile*>(&m_cRef)));
+
+        if (0 == cRef)
+        {
+            delete this;
+        }
+
+        return cRef;
+    }
+
+    STDMETHOD(QueryInterface)(THIS_ REFIID iid, void** ppvObject)
+    {
+        HRESULT hr = S_OK;
+
+        if (__uuidof(IUnknown) == iid)
+        {
+            *ppvObject = static_cast<IUnknown*>(this);
+            AddRef();
+        }
+        else if (__uuidof(ID2D1SimplifiedGeometrySink) == iid)
+        {
+            *ppvObject = static_cast<ID2D1SimplifiedGeometrySink*>(this);
+            AddRef();
+        }
+        else
+        {
+            *ppvObject = NULL;
+            hr = E_NOINTERFACE;
+        }
+
+        return hr;
+    }
+
+    STDMETHOD_(void, AddBeziers)(const D2D1_BEZIER_SEGMENT* beziers,
+        UINT beziersCount)
+    {
+        size_t mPathPoints = mpPathPoints.size();
+        mpPathTypes.resize(mPathPoints + 3 * beziersCount, PT_BEZIERTO);
+        mpPathPoints.resize(mPathPoints + 3 * beziersCount);
+        for (UINT i = 0; i < beziersCount; ++i)
+        {
+            const D2D1_BEZIER_SEGMENT* bezier = beziers + i;
+            POINT p1{ bezier->point1.x,bezier->point1.y }, p2{ bezier->point2.x,bezier->point2.y }, p3{ bezier->point3.x,bezier->point3.y };
+            mpPathPoints[mPathPoints + 3 * i] = p1;
+            mpPathPoints[mPathPoints + 3 * i + 1] = p2;
+            mpPathPoints[mPathPoints + 3 * i + 2] = p3;
+        }
+    }
+
+    STDMETHOD_(void, AddLines)(const D2D1_POINT_2F* points, UINT pointsCount)
+    {
+        mpPathTypes.resize(mpPathTypes.size() + pointsCount, PT_LINETO);
+        size_t mPathPoints = mpPathPoints.size();
+        mpPathPoints.resize(mPathPoints + pointsCount);
+        for (UINT i = 0; i < pointsCount; ++i)
+        {
+            mpPathPoints[mPathPoints + i].x = points[i].x;
+            mpPathPoints[mPathPoints + i].y = points[i].y;
+        }
+    }
+
+    STDMETHOD_(void, BeginFigure)(D2D1_POINT_2F startPoint,
+        D2D1_FIGURE_BEGIN figureBegin)
+    {
+        POINT p{ startPoint.x, startPoint.y };
+        mpPathTypes.push_back(PT_MOVETO);
+        mpPathPoints.push_back(p);
+    }
+
+    STDMETHOD_(void, EndFigure)(D2D1_FIGURE_END figureEnd)
+    {
+        if (mpPathTypes.back() == PT_LINETO || mpPathTypes.back() == PT_BEZIERTO)
+            mpPathTypes.back() |= PT_CLOSEFIGURE;
+    }
+
+    STDMETHOD_(void, SetFillMode)(D2D1_FILL_MODE fillMode)
+    {
+    }
+
+    STDMETHOD_(void, SetSegmentFlags)(D2D1_PATH_SEGMENT vertexFlags)
+    {
+    }
+
+    STDMETHOD(Close)()
+    {
+        return S_OK;
+    }
+
+private:
+    UINT m_cRef;
+};
+class CustomTextRenderer : public IDWriteTextRenderer
+{
+protected:
+    ULONG m_cRef;
+
+    ID2D1Factory* m_pD2DFactory;
+
+public:
+    CWord* inner;
+    CustomTextRenderer(
+        ID2D1Factory* pD2DFactory,
+        CWord* in
+    );
+
+    ~CustomTextRenderer();
+
+    STDMETHOD(DrawGlyphRun)(
+        void* clientDrawingContext,
+        FLOAT                              baselineOriginX,
+        FLOAT                              baselineOriginY,
+        DWRITE_MEASURING_MODE              measuringMode,
+        DWRITE_GLYPH_RUN const* glyphRun,
+        DWRITE_GLYPH_RUN_DESCRIPTION const* glyphRunDescription,
+        IUnknown* clientDrawingEffect
+        );
+
+    STDMETHOD(DrawUnderline)(
+        void* clientDrawingContext,
+        FLOAT                  baselineOriginX,
+        FLOAT                  baselineOriginY,
+        DWRITE_UNDERLINE const* underline,
+        IUnknown* clientDrawingEffect
+        );
+
+    STDMETHOD(DrawStrikethrough)(
+        void* clientDrawingContext,
+        FLOAT                      baselineOriginX,
+        FLOAT                      baselineOriginY,
+        DWRITE_STRIKETHROUGH const* strikethrough,
+        IUnknown* clientDrawingEffect
+        );
+
+    STDMETHOD(DrawInlineObject)(
+        void* clientDrawingContext,
+        FLOAT               originX,
+        FLOAT               originY,
+        IDWriteInlineObject* inlineObject,
+        BOOL                isSideways,
+        BOOL                isRightToLeft,
+        IUnknown* clientDrawingEffect
+        )
+    {
+        return E_NOTIMPL;
+    }
+
+    STDMETHOD(IsPixelSnappingDisabled)(
+        void* clientDrawingContext,
+        BOOL* isDisabled
+        )
+    {
+        *isDisabled = FALSE;
+        return S_OK;
+    }
+
+    STDMETHOD(GetCurrentTransform)(
+        void* clientDrawingContext,
+        DWRITE_MATRIX* transform
+        )
+    {
+        return S_OK;
+    }
+
+    STDMETHOD(GetPixelsPerDip)(
+        void* clientDrawingContext,
+        FLOAT* pixelsPerDip
+        )
+    {
+        return S_OK;
+    }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID iid, void FAR* FAR* ppvObj)
+    {
+        if (iid == IID_IUnknown /*|| iid == IID_IDWritePixelSnapping || iid == IID_IDWriteTextRenderer*/)
+        {
+            *ppvObj = this;
+            AddRef();
+            return NOERROR;
+        }
+        return E_NOINTERFACE;
+    }
+
+    ULONG STDMETHODCALLTYPE AddRef()
+    {
+        return ++m_cRef;
+    }
+
+    ULONG STDMETHODCALLTYPE Release()
+    {
+        // Decrement the object's internal counter.
+        if (0 == --m_cRef)
+        {
+            delete this;
+        }
+        return m_cRef;
+    }
+};
 
 class CMyFont : public CFont
 {
 public:
     int m_ascent, m_descent;
-
+    IDWriteTextFormat* pDWriteTextFormat;
+    bool under_line, strike_out;
     CMyFont(STSStyle& style);
 };
 

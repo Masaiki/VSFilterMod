@@ -24,10 +24,15 @@
 #include <math.h>
 #include <time.h>
 #include "RTS.h"
-
+#include <cassert>
 // WARNING: this isn't very thread safe, use only one RTS a time.
 static HDC g_hDC;
 static int g_hDC_refcnt = 0;
+ID2D1Factory* g_pD2DFactory = nullptr;
+IDWriteFactory* g_pDWriteFactory = nullptr;
+//ID2D1DCRenderTarget* g_pDCRenderTarget = nullptr;
+//IDWriteGdiInterop* g_pGdiInterop = nullptr;
+//ID2D1SolidColorBrush* g_pTextBrush = nullptr;
 
 static long revcolor(long c)
 {
@@ -35,6 +40,229 @@ static long revcolor(long c)
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////////
+CustomTextRenderer::CustomTextRenderer(
+    ID2D1Factory* pD2DFactory,
+    CWord* in
+):m_cRef(0), m_pD2DFactory(pD2DFactory), inner(in)
+{
+    g_pD2DFactory->AddRef();
+}
+CustomTextRenderer::~CustomTextRenderer() {
+    SafeRelease(&m_pD2DFactory);
+}
+HRESULT CustomTextRenderer::DrawGlyphRun(
+    void* clientDrawingContext, FLOAT baselineOriginX, FLOAT baselineOriginY,
+    DWRITE_MEASURING_MODE measuringMode, DWRITE_GLYPH_RUN const* glyphRun,
+    DWRITE_GLYPH_RUN_DESCRIPTION const* glyphRunDescription, IUnknown* clientDrawingEffect)
+{
+    HRESULT hr = S_OK;
+
+    ID2D1PathGeometry* pPathGeometry = nullptr;
+    hr = m_pD2DFactory->CreatePathGeometry(&pPathGeometry);
+    ID2D1GeometrySink* pSink = nullptr;
+    hr = pPathGeometry->Open(&pSink);
+
+    hr = glyphRun->fontFace->GetGlyphRunOutline(
+        glyphRun->fontEmSize,
+        glyphRun->glyphIndices,
+        glyphRun->glyphAdvances,
+        glyphRun->glyphOffsets,
+        glyphRun->glyphCount,
+        glyphRun->isSideways,
+        glyphRun->bidiLevel,
+        pSink
+    );
+    hr = pSink->Close();
+    D2D1::Matrix3x2F const matrix = D2D1::Matrix3x2F(
+        1.0f, 0.0f,
+        0.0f, 1.0f,
+        baselineOriginX, baselineOriginY
+    );
+    ID2D1TransformedGeometry* pTransformedGeometry = nullptr;
+    hr = m_pD2DFactory->CreateTransformedGeometry(pPathGeometry, &matrix, &pTransformedGeometry);
+    SpecializedSink* pSpecializedSink = NULL;
+
+    if (SUCCEEDED(hr))
+    {
+        pSpecializedSink = new SpecializedSink();
+        if (!pSpecializedSink)
+        {
+            hr = E_OUTOFMEMORY;
+        }
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        hr = pTransformedGeometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES, // This causes any curves to be flattened into line segments.
+            NULL, // world transform
+            pSpecializedSink
+        );
+
+
+        if (SUCCEEDED(hr))
+        {
+            hr = pSpecializedSink->Close();
+            inner->mpPathTypes = (BYTE*)realloc(inner->mpPathTypes, (inner->mPathPoints + pSpecializedSink->mpPathTypes.size()) * sizeof(BYTE));
+            inner->mpPathPoints = (POINT*)realloc(inner->mpPathPoints, (inner->mPathPoints + pSpecializedSink->mpPathPoints.size()) * sizeof(POINT));
+            for (ptrdiff_t i = 0; i < pSpecializedSink->mpPathPoints.size(); ++i)
+            {
+                inner->mpPathPoints[inner->mPathPoints + i].x = pSpecializedSink->mpPathPoints[i].x;
+                inner->mpPathPoints[inner->mPathPoints + i].y = pSpecializedSink->mpPathPoints[i].y;
+                inner->mpPathTypes[inner->mPathPoints + i] = pSpecializedSink->mpPathTypes[i];
+            }
+            inner->mPathPoints += pSpecializedSink->mpPathPoints.size();
+        }
+
+        pSpecializedSink->Release();
+    }
+    return hr;
+}
+HRESULT CustomTextRenderer::DrawUnderline(
+    void* clientDrawingContext,
+    FLOAT                  baselineOriginX,
+    FLOAT                  baselineOriginY,
+    DWRITE_UNDERLINE const* underline,
+    IUnknown* clientDrawingEffect
+) {
+    HRESULT hr = S_OK;
+    D2D1_POINT_2F points[4] = { {0,underline->offset},{underline->width,underline->offset},{underline->width,0}, {0,0} };
+    ID2D1PathGeometry* pPathGeometry = nullptr;
+    hr = m_pD2DFactory->CreatePathGeometry(&pPathGeometry);
+    ID2D1GeometrySink* pSink = nullptr;
+    hr = pPathGeometry->Open(&pSink);
+    pSink->BeginFigure(D2D1::Point2F(0, 0), D2D1_FIGURE_BEGIN_FILLED);
+    pSink->AddLines(points, 4);
+    pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    hr = pSink->Close();
+    D2D1::Matrix3x2F const matrix = D2D1::Matrix3x2F(
+        1.0f, 0.0f,
+        0.0f, 1.0f,
+        baselineOriginX, baselineOriginY
+    );
+    ID2D1TransformedGeometry* pTransformedGeometry = nullptr;
+    hr = m_pD2DFactory->CreateTransformedGeometry(pPathGeometry, &matrix, &pTransformedGeometry);
+    SpecializedSink* pSpecializedSink = NULL;
+
+    if (SUCCEEDED(hr))
+    {
+        pSpecializedSink = new SpecializedSink();
+        if (!pSpecializedSink)
+        {
+            hr = E_OUTOFMEMORY;
+        }
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        hr = pTransformedGeometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES, // This causes any curves to be flattened into line segments.
+            NULL, // world transform
+            pSpecializedSink
+        );
+
+
+        if (SUCCEEDED(hr))
+        {
+            hr = pSpecializedSink->Close();
+            inner->mpPathTypes = (BYTE*)realloc(inner->mpPathTypes, (inner->mPathPoints + pSpecializedSink->mpPathTypes.size()) * sizeof(BYTE));
+            inner->mpPathPoints = (POINT*)realloc(inner->mpPathPoints, (inner->mPathPoints + pSpecializedSink->mpPathPoints.size()) * sizeof(POINT));
+            for (ptrdiff_t i = 0; i < pSpecializedSink->mpPathPoints.size(); ++i)
+            {
+                inner->mpPathPoints[inner->mPathPoints + i].x = pSpecializedSink->mpPathPoints[i].x;
+                inner->mpPathPoints[inner->mPathPoints + i].y = pSpecializedSink->mpPathPoints[i].y;
+                inner->mpPathTypes[inner->mPathPoints + i] = pSpecializedSink->mpPathTypes[i];
+            }
+            inner->mPathPoints += pSpecializedSink->mpPathPoints.size();
+        }
+
+        pSpecializedSink->Release();
+    }
+    return hr;
+}
+
+HRESULT CustomTextRenderer::DrawStrikethrough(
+    void* clientDrawingContext,
+    FLOAT                      baselineOriginX,
+    FLOAT                      baselineOriginY,
+    DWRITE_STRIKETHROUGH const* strikethrough,
+    IUnknown* clientDrawingEffect
+) {
+    HRESULT hr = S_OK;
+    D2D1_POINT_2F points[5] = { {0,strikethrough->offset},{strikethrough->width,strikethrough->offset},{strikethrough->width,0}, {0,0} };
+    ID2D1PathGeometry* pPathGeometry = nullptr;
+    hr = m_pD2DFactory->CreatePathGeometry(&pPathGeometry);
+    ID2D1GeometrySink* pSink = nullptr;
+    hr = pPathGeometry->Open(&pSink);
+    pSink->BeginFigure(D2D1::Point2F(0, 0), D2D1_FIGURE_BEGIN_FILLED);
+    pSink->AddLines(points, 4);
+    pSink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    hr = pSink->Close();
+    D2D1::Matrix3x2F const matrix = D2D1::Matrix3x2F(
+        1.0f, 0.0f,
+        0.0f, 1.0f,
+        baselineOriginX, baselineOriginY
+    );
+    ID2D1TransformedGeometry* pTransformedGeometry = nullptr;
+    hr = m_pD2DFactory->CreateTransformedGeometry(pPathGeometry, &matrix, &pTransformedGeometry);
+    SpecializedSink* pSpecializedSink = NULL;
+
+    if (SUCCEEDED(hr))
+    {
+        pSpecializedSink = new SpecializedSink();
+        if (!pSpecializedSink)
+        {
+            hr = E_OUTOFMEMORY;
+        }
+    }
+
+    if (SUCCEEDED(hr))
+    {
+        hr = pTransformedGeometry->Simplify(
+            D2D1_GEOMETRY_SIMPLIFICATION_OPTION_CUBICS_AND_LINES, // This causes any curves to be flattened into line segments.
+            NULL, // world transform
+            pSpecializedSink
+        );
+
+
+        if (SUCCEEDED(hr))
+        {
+            hr = pSpecializedSink->Close();
+            inner->mpPathTypes = (BYTE*)realloc(inner->mpPathTypes, (inner->mPathPoints + pSpecializedSink->mpPathTypes.size()) * sizeof(BYTE));
+            inner->mpPathPoints = (POINT*)realloc(inner->mpPathPoints, (inner->mPathPoints + pSpecializedSink->mpPathPoints.size()) * sizeof(POINT));
+            for (ptrdiff_t i = 0; i < pSpecializedSink->mpPathPoints.size(); ++i)
+            {
+                inner->mpPathPoints[inner->mPathPoints + i].x = pSpecializedSink->mpPathPoints[i].x;
+                inner->mpPathPoints[inner->mPathPoints + i].y = pSpecializedSink->mpPathPoints[i].y;
+                inner->mpPathTypes[inner->mPathPoints + i] = pSpecializedSink->mpPathTypes[i];
+            }
+            inner->mPathPoints += pSpecializedSink->mpPathPoints.size();
+        }
+
+        pSpecializedSink->Release();
+    }
+    return hr;
+}
+//static BOOL TextoutW_with_directwrite(HDC hdc, int x, int y, LPCWSTR lpString, int c) {
+//    HRESULT hr = S_OK;
+//
+//    ID2D1PathGeometry* pPathGeometry = nullptr;
+//    hr = g_pD2DFactory->CreatePathGeometry(&pPathGeometry);
+//    ID2D1GeometrySink* pSink = nullptr;
+//    hr = pPathGeometry->Open(&pSink);
+//
+//    hr = glyphRun->fontFace->GetGlyphRunOutline(
+//        glyphRun->fontEmSize,
+//        glyphRun->glyphIndices,
+//        glyphRun->glyphAdvances,
+//        glyphRun->glyphOffsets,
+//        glyphRun->glyphCount,
+//        glyphRun->isSideways,
+//        glyphRun->bidiLevel,
+//        pSink
+//    );
+//    hr = pSink->Close();
+//}
 
 // CMyFont
 
@@ -64,6 +292,8 @@ CMyFont::CMyFont(STSStyle& style)
     m_ascent = ((tm.tmAscent + 4) >> 3);
     m_descent = ((tm.tmDescent + 4) >> 3);
     SelectFont(g_hDC, hOldFont);
+    g_pDWriteFactory->CreateTextFormat(lf.lfFaceName, nullptr, DWRITE_FONT_WEIGHT(lf.lfWeight), style.fItalic ? DWRITE_FONT_STYLE_ITALIC: DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, style.fontSize, L"", &pDWriteTextFormat);
+    under_line = style.fUnderline, strike_out = style.fStrikeOut;
 }
 
 // CWord
@@ -647,9 +877,24 @@ bool CText::CreatePath()
             return(false);
         }
 
-        BeginPath(g_hDC);
-        TextOutW(g_hDC, 0, 0, m_str, m_str.GetLength());
-        EndPath(g_hDC);
+        //BeginPath(g_hDC);
+        //TextOutW(g_hDC, 0, 0, m_str, m_str.GetLength());
+        //EndPath(g_hDC);
+        IDWriteTextLayout* pDWriteTextLayout = nullptr;
+        DWRITE_TEXT_METRICS text_metrics;
+        g_pDWriteFactory->CreateGdiCompatibleTextLayout(m_str, m_str.GetLength(), font.pDWriteTextFormat, INFINITY, INFINITY, 1.0f, nullptr, true, &pDWriteTextLayout);
+        DWRITE_TEXT_RANGE range = { 0,m_str.GetLength() };
+        if (font.under_line) pDWriteTextLayout->SetUnderline(true, range);
+        if (font.strike_out) pDWriteTextLayout->SetStrikethrough(true, range);
+        pDWriteTextLayout->GetMetrics(&text_metrics);
+        RECT r{ 0,0, text_metrics.widthIncludingTrailingWhitespace,text_metrics.height };
+        CustomTextRenderer* pTextRenderer_ = new CustomTextRenderer(g_pD2DFactory, this);
+        HRESULT hr = pDWriteTextLayout->Draw(
+            NULL,
+            pTextRenderer_,
+            0,
+            0
+        );
     }
 
     SelectFont(g_hDC, hOldFont);
@@ -1665,7 +1910,7 @@ CRenderedTextSubtitle::CRenderedTextSubtitle(CCritSec* pLock, STSStyle *styleOve
 {
     m_size = CSize(0, 0);
 
-    if(g_hDC_refcnt == 0)
+    if (g_hDC_refcnt == 0)
     {
         g_hDC = CreateCompatibleDC(NULL);
 #ifdef _VSMOD // patch m007. symbol rotating
@@ -1674,8 +1919,11 @@ CRenderedTextSubtitle::CRenderedTextSubtitle(CCritSec* pLock, STSStyle *styleOve
         SetBkMode(g_hDC, TRANSPARENT);
         SetTextColor(g_hDC, 0xffffff);
         SetMapMode(g_hDC, MM_TEXT);
+        HRESULT hr = D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, &g_pD2DFactory);
+        if (SUCCEEDED(hr)) {
+            hr = DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory), reinterpret_cast<IUnknown**>(&g_pDWriteFactory));
+        }
     }
-
     g_hDC_refcnt++;
 }
 
