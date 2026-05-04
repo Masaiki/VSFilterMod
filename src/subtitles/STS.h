@@ -264,6 +264,7 @@ public:
     LCID m_lcid;
     exttype m_exttype;
     tmode m_mode;
+    int m_sver; // script version: 3=unknown, 4=SSAv4, 5=ASS(v4.00+), 6=ASS2(v4.00++)
     CTextFile::enc m_encoding;
     CString m_path;
 

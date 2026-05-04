@@ -1774,6 +1774,7 @@ static bool OpenSubStationAlpha(CTextFile* file, CSimpleTextSubtitle& ret, int C
 #endif
     }
 
+    if (fRet) ret.m_sver = sver;
     return(fRet);
 }
 
@@ -2051,6 +2052,7 @@ CSimpleTextSubtitle::CSimpleTextSubtitle()
     m_collisions = 0;
     m_fScaledBAS = false;
     m_encoding = CTextFile::ASCII;
+    m_sver = 3;
     m_lcid = 0;
     m_ePARCompensationType = EPCTDisabled;
     m_dPARCompensation = 1.0;
@@ -2185,6 +2187,7 @@ void CSimpleTextSubtitle::Empty()
     m_styles.Free();
     m_segments.RemoveAll();
     RemoveAll();
+    m_sver = 3;
 
 #ifdef _VSMOD // indexing
 #ifdef INDEXING

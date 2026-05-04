@@ -20,6 +20,7 @@
  */
 
 #include "stdafx.h"
+#include "..\dsutil\text.h"
 #include <afxdlgs.h>
 #include <atlpath.h>
 #include "resource.h"
@@ -43,6 +44,7 @@ extern "C" struct csri_vsfilter_inst
 };
 typedef struct csri_vsfilter_inst csri_inst;
 #include "csri.h"
+#include "csri/stream.h"
 #ifdef _VSMOD
 static csri_rend csri_vsfilter = "vsfiltermod";
 #else
@@ -188,9 +190,70 @@ CSRIAPI void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
 }
 
 
-// No extensions supported
+// Stream extension implementation
+static csri_inst *vsfilter_init_stream(csri_rend *renderer, const void *header, size_t headerlen, struct csri_openflag *flags)
+{
+    return csri_open_mem(renderer, header, headerlen, flags);
+}
+
+static void vsfilter_push_packet(csri_inst *inst, const void *packet, size_t packetlen, double pts_start, double pts_end)
+{
+    if (!inst || !inst->rts || !packet || packetlen == 0) return;
+
+    CStringA strA((LPCSTR)packet, packetlen);
+    CStringW str = UTF8To16(strA).Trim();
+    
+    if (str.IsEmpty()) return;
+
+    STSEntry stse;
+    int fields = (inst->rts->m_sver >= 6) ? 10 : 9;
+
+    CAtlList<CStringW> sl;
+    Explode(str, sl, ',', fields);
+    if(sl.GetCount() == fields)
+    {
+        stse.readorder = wcstol(sl.RemoveHead(), NULL, 10);
+        stse.layer = wcstol(sl.RemoveHead(), NULL, 10);
+        stse.style = sl.RemoveHead();
+        stse.actor = sl.RemoveHead();
+        stse.marginRect.left = wcstol(sl.RemoveHead(), NULL, 10);
+        stse.marginRect.right = wcstol(sl.RemoveHead(), NULL, 10);
+        stse.marginRect.top = stse.marginRect.bottom = wcstol(sl.RemoveHead(), NULL, 10);
+        if(fields == 10) stse.marginRect.bottom = wcstol(sl.RemoveHead(), NULL, 10);
+        stse.effect = sl.RemoveHead();
+        stse.str = sl.RemoveHead();
+    }
+
+    if(!stse.str.IsEmpty())
+    {
+        inst->rts->Add(stse.str, true, (int)(pts_start * 1000), (int)(pts_end * 1000), 
+            stse.style, stse.actor, stse.effect, stse.marginRect, stse.layer, stse.readorder);
+    }
+}
+
+static void vsfilter_discard(csri_inst *inst, int all)
+{
+    if (inst && inst->rts) {
+        // VSFilter's RTS doesn't have an exact "discard" per-se for streaming,
+        // but we can remove all entries if `all` is requested (similar to NewSegment).
+        if (all) {
+            inst->rts->RemoveAll();
+            inst->rts->CreateSegments();
+        }
+    }
+}
+
+static struct csri_stream_ext vsfilter_stream_ext = {
+    vsfilter_init_stream,
+    vsfilter_push_packet,
+    vsfilter_discard
+};
+
 CSRIAPI void *csri_query_ext(csri_rend *rend, csri_ext_id extname)
 {
+    if (strcmp(extname, CSRI_EXT_STREAM_ASS) == 0) {
+        return &vsfilter_stream_ext;
+    }
     return 0;
 }
 
