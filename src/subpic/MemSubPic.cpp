@@ -82,32 +82,49 @@ bool fColorConvInitOK = false;
 const float(*MATRIX)[4] = MATRIX_BT_601;
 const float(*MATRIX_INV)[4] = MATRIX_BT_601_INV;
 const int(*RANGE)[4] = YUV_TV;
+// ColorConvInitOther re-initializes the shared YUV<->RGB LUTs. Callers invoke
+// it per CMemSubPic from the render thread, so the statics below guard both the
+// "did the params actually change?" check and the LUT rewrite.
+static CCritSec s_csColorConv;
+static int s_lastYCbCrMatrix = -1;
+static int s_lastYCbCrRange = -1;
 void ColorConvInitOther(int inYCbCrMatrix, int inYCbCrRange)
 {
-    if(fColorConvInitOK) return;
-    if (inYCbCrMatrix == YCbCrMatrix_BT601)
-    {
-        MATRIX = MATRIX_BT_601;
-        MATRIX_INV = MATRIX_BT_601_INV;
-    }
-    else if (inYCbCrMatrix == YCbCrMatrix_BT709)
+    CAutoLock lock(&s_csColorConv);
+
+    // Re-initialize only when the matrix/range actually changes. This used to
+    // be a one-shot guarded by fColorConvInitOK, which locked the conversion to
+    // whichever matrix the first subtitle happened to use for the whole session
+    // — so the DirectShow path (defaulting to BT601/TV) never honored a
+    // script-declared matrix. AUTO and unknown values fall back to BT601/TV.
+    if(inYCbCrMatrix == s_lastYCbCrMatrix && inYCbCrRange == s_lastYCbCrRange)
+        return;
+
+    if(inYCbCrMatrix == YCbCrMatrix_BT709)
     {
         MATRIX = MATRIX_BT_709;
         MATRIX_INV = MATRIX_BT_709_INV;
     }
-    else if (inYCbCrMatrix == YCbCrMatrix_BT2020)
+    else if(inYCbCrMatrix == YCbCrMatrix_BT2020)
     {
         MATRIX = MATRIX_BT_2020;
         MATRIX_INV = MATRIX_BT_2020_INV;
     }
-    if (inYCbCrRange == YCbCrRange_TV)
+    else // BT601, AUTO, unknown -> BT601
     {
-        RANGE = YUV_TV;
+        MATRIX = MATRIX_BT_601;
+        MATRIX_INV = MATRIX_BT_601_INV;
     }
-    else if (inYCbCrRange == YCbCrRange_PC)
+
+    if(inYCbCrRange == YCbCrRange_PC)
     {
         RANGE = YUV_PC;
     }
+    else // TV, AUTO, unknown -> TV
+    {
+        RANGE = YUV_TV;
+    }
+
     cy_cy = int(255.0 / RANGE[0][0] * 65536 + 0.5);
     cy_cy2 = int(255.0 / RANGE[0][0] * 32768 + 0.5);
     c2y_cyb = int(MATRIX[0][2] * RANGE[0][0] / 255 * 65536 + 0.5);
@@ -142,6 +159,8 @@ void ColorConvInitOther(int inYCbCrMatrix, int inYCbCrRange)
         y2c_rv[i] = y2c_crv * (i - 128);
     }
 
+    s_lastYCbCrMatrix = inYCbCrMatrix;
+    s_lastYCbCrRange = inYCbCrRange;
     fColorConvInitOK = true;
 }
 void ColorConvInit()

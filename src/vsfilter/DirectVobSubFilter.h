@@ -24,6 +24,7 @@
 #include <atlsync.h>
 #include "DirectVobSub.h"
 #include "..\BaseVideoFilter\BaseVideoFilter.h"
+#include "..\subpic\MemSubPic.h"
 #include "..\subtitles\VobSubFile.h"
 #include "..\subtitles\RTS.h"
 #include "..\subtitles\SSF.h"
@@ -50,6 +51,7 @@ class CDirectVobSubFilter
 
     CCritSec m_csQueueLock;
     CComPtr<ISubPicQueue> m_pSubPicQueue;
+    CComPtr<CMemSubPicAllocator> m_pSubPicAllocator;
     void InitSubPicQueue();
     SubPicDesc m_spd;
 

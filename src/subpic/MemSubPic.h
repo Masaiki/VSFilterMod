@@ -75,5 +75,14 @@ class CMemSubPicAllocator : public ISubPicAllocatorImpl
 
 public:
     CMemSubPicAllocator(int type, SIZE maxsize, int inYCbCrMatrix=YCbCrMatrix_BT601, int inYCbCrRange=YCbCrRange_TV);
+
+    // Update the matrix/range used for subsequently allocated SubPics. Used by
+    // the DirectShow path to honor the YCbCr Matrix script header, which it
+    // could not before (the allocator was constructed once with BT601/TV).
+    void SetYCbCrMatrix(int inYCbCrMatrix, int inYCbCrRange)
+    {
+        m_eYCbCrMatrix = inYCbCrMatrix;
+        m_eYCbCrRange = inYCbCrRange;
+    }
 };
 

@@ -537,7 +537,8 @@ void CDirectVobSubFilter::InitSubPicQueue()
     m_spd.pitch = m_spd.w * m_spd.bpp >> 3;
     m_spd.bits = (void*)m_pTempPicBuff;
 
-    CComPtr<ISubPicAllocator> pSubPicAllocator = new CMemSubPicAllocator(m_spd.type, CSize(m_w, m_h));
+    m_pSubPicAllocator = new CMemSubPicAllocator(m_spd.type, CSize(m_w, m_h));
+    CComPtr<ISubPicAllocator> pSubPicAllocator = m_pSubPicAllocator;
 
     CSize video(bihIn.biWidth, bihIn.biHeight), window = video;
     if(AdjustFrameSize(window)) video += video;
@@ -1554,6 +1555,12 @@ void CDirectVobSubFilter::SetSubtitle(ISubStream* pSubStream, bool fApplyDefStyl
             {
                 pRTS->m_dPARCompensation = 1.00;
             }
+
+            // Honor the script's YCbCr Matrix header on the DirectShow path.
+            // The allocator was previously constructed once with BT601/TV and
+            // never updated, so a script-declared 709/2020 matrix was ignored.
+            if(m_pSubPicAllocator)
+                m_pSubPicAllocator->SetYCbCrMatrix(pRTS->m_eYCbCrMatrix, pRTS->m_eYCbCrRange);
 
             pRTS->Deinit();
         }
