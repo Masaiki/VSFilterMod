@@ -72,7 +72,8 @@ bool CTextFile::Open(LPCTSTR lpszFileName)
     if(m_encoding == m_defaultencoding)
     {
         __super::Close(); // CWebTextFile::Close() would delete the temp file if we called it...
-        if(!__super::Open(lpszFileName, modeRead | typeText | shareDenyNone))
+        // Subtitle format detection seeks by byte offset, which text-mode streams cannot provide reliably.
+        if(!__super::Open(lpszFileName, modeRead | typeBinary | shareDenyNone))
             return(false);
     }
 
@@ -274,13 +275,7 @@ BOOL CTextFile::ReadString(CStringA& str)
 
     str.Empty();
 
-    if(m_encoding == ASCII)
-    {
-        CString s;
-        fEOF = !__super::ReadString(s);
-        str = TToA(s);
-    }
-    else if(m_encoding == ANSI)
+    if(m_encoding == ASCII || m_encoding == ANSI)
     {
         char c;
         while(Read(&c, sizeof(c)) == sizeof(c))
@@ -358,13 +353,7 @@ BOOL CTextFile::ReadString(CStringW& str)
 
     str.Empty();
 
-    if(m_encoding == ASCII)
-    {
-        CString s;
-        fEOF = !__super::ReadString(s);
-        str = TToW(s);
-    }
-    else if(m_encoding == ANSI)
+    if(m_encoding == ASCII || m_encoding == ANSI)
     {
         CStringA stra;
         char c;
