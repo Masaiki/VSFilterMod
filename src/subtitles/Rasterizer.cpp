@@ -864,7 +864,9 @@ bool Rasterizer::Rasterize(int xsub, int ysub, int fBlur, double fGaussianBlur)
 
 static __forceinline void pixmix(DWORD *dst, DWORD color, DWORD alpha)
 {
-    DWORD a = (((alpha) * (color >> 24)) >> 6) & 0xff;
+    // coverage alpha is 6-bit (0..64); add a rounding term so the >> 6 rounds
+    // to nearest instead of truncating, which otherwise darkens mid tones.
+    DWORD a = (((alpha) * (color >> 24) + (1 << 5)) >> 6) & 0xff;
     DWORD ia = 256 - a;
     a += 1;
 
@@ -876,7 +878,8 @@ static __forceinline void pixmix(DWORD *dst, DWORD color, DWORD alpha)
 
 static __forceinline void pixmix2(DWORD *dst, DWORD color, DWORD shapealpha, DWORD clipalpha)
 {
-    DWORD a = (((shapealpha) * (clipalpha) * (color >> 24)) >> 12) & 0xff;
+    // shape*clip coverage is 12-bit (0..64*64); round to nearest on >> 12.
+    DWORD a = (((shapealpha) * (clipalpha) * (color >> 24) + (1 << 11)) >> 12) & 0xff;
     DWORD ia = 256 - a;
     a += 1;
 
@@ -890,7 +893,7 @@ static __forceinline void pixmix2(DWORD *dst, DWORD color, DWORD shapealpha, DWO
 
 static __forceinline void pixmix_sse2(DWORD* dst, DWORD color, DWORD alpha)
 {
-    alpha = (((alpha) * (color >> 24)) >> 6) & 0xff;
+    alpha = (((alpha) * (color >> 24) + (1 << 5)) >> 6) & 0xff;
     color &= 0xffffff;
 
     __m128i zero = _mm_setzero_si128();
@@ -909,7 +912,7 @@ static __forceinline void pixmix_sse2(DWORD* dst, DWORD color, DWORD alpha)
 
 static __forceinline void pixmix2_sse2(DWORD* dst, DWORD color, DWORD shapealpha, DWORD clipalpha)
 {
-    DWORD alpha = (((shapealpha) * (clipalpha) * (color >> 24)) >> 12) & 0xff;
+    DWORD alpha = (((shapealpha) * (clipalpha) * (color >> 24) + (1 << 11)) >> 12) & 0xff;
     color &= 0xffffff;
 
     __m128i zero = _mm_setzero_si128();
