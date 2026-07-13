@@ -47,6 +47,20 @@ bool CTextFile::Open(LPCTSTR lpszFileName)
 
         if(w == 0xfeff)
         {
+            // FF FE could be a UTF-16LE BOM, or the first two bytes of a
+            // UTF-32LE BOM (FF FE 00 00). UTF-32 is not supported; reject the
+            // file instead of mis-parsing UTF-32LE as UTF-16LE (which would
+            // decode the embedded NULs as garbage characters).
+            if(__super::GetLength() >= 4)
+            {
+                BYTE b[2];
+                if(sizeof(b) != Read(b, sizeof(b)))
+                    return Close(), false;
+                if(b[0] == 0x00 && b[1] == 0x00)
+                    return Close(), false; // UTF-32LE, unsupported
+                // genuine UTF-16LE: rewind the two extra bytes we peeked
+                __super::Seek(2, CFile::begin);
+            }
             m_encoding = LE16;
             m_offset = 2;
         }
