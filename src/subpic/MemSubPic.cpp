@@ -95,7 +95,7 @@ void ColorConvInitOther(int inYCbCrMatrix, int inYCbCrRange)
     // Re-initialize only when the matrix/range actually changes. This used to
     // be a one-shot guarded by fColorConvInitOK, which locked the conversion to
     // whichever matrix the first subtitle happened to use for the whole session
-    // — so the DirectShow path (defaulting to BT601/TV) never honored a
+    // - so the DirectShow path (defaulting to BT601/TV) never honored a
     // script-declared matrix. AUTO and unknown values fall back to BT601/TV.
     if(inYCbCrMatrix == s_lastYCbCrMatrix && inYCbCrRange == s_lastYCbCrRange)
         return;
@@ -319,7 +319,8 @@ STDMETHODIMP CMemSubPic::Unlock(RECT* pDirtyRect)
             }
         }
     }
-    else if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV)
+    else if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV
+            || m_spd.type == MSP_NV12 || m_spd.type == MSP_P010 || m_spd.type == MSP_P016)
     {
         for(; top < bottom ; top += m_spd.pitch)
         {
@@ -412,11 +413,12 @@ STDMETHODIMP CMemSubPic::AlphaBlt(RECT* pSrc, RECT* pDst, SubPicDesc* pTarget)
     {
         if(dst.type == MSP_RGB32 || dst.type == MSP_RGB24
            || dst.type == MSP_RGB16 || dst.type == MSP_RGB15
-           || dst.type == MSP_YUY2 || dst.type == MSP_AYUV)
+           || dst.type == MSP_YUY2 || dst.type == MSP_AYUV
+           || dst.type == MSP_P010 || dst.type == MSP_P016)
         {
             d = (BYTE*)dst.bits + dst.pitch * (rd.top - 1) + (rd.left * dst.bpp >> 3);
         }
-        else if(dst.type == MSP_YV12 || dst.type == MSP_IYUV)
+        else if(dst.type == MSP_YV12 || dst.type == MSP_IYUV || dst.type == MSP_NV12)
         {
             d = (BYTE*)dst.bits + dst.pitch * (rd.top - 1) + (rd.left * 8 >> 3);
         }
@@ -583,7 +585,7 @@ STDMETHODIMP CMemSubPic::AlphaBlt(RECT* pSrc, RECT* pDst, SubPicDesc* pTarget)
                 }
             }
         }
-        else if(dst.type == MSP_YV12 || dst.type == MSP_IYUV)
+        else if(dst.type == MSP_YV12 || dst.type == MSP_IYUV || dst.type == MSP_NV12)
         {
             BYTE* s2 = s;
             BYTE* s2end = s2 + w * 4;
@@ -593,6 +595,22 @@ STDMETHODIMP CMemSubPic::AlphaBlt(RECT* pSrc, RECT* pDst, SubPicDesc* pTarget)
                 if(s2[3] < 0xff)
                 {
                     d2[0] = (((d2[0] - RANGE[0][3]) * s2[3]) >> 8) + s2[1];
+                }
+            }
+        }
+        else if(dst.type == MSP_P010 || dst.type == MSP_P016)
+        {
+            // Y plane: blend in 8-bit on the high byte of each 16-bit sample.
+            const BYTE* s2 = s;
+            const BYTE* s2end = s2 + w * 4;
+            WORD* d2 = (WORD*)d;
+            for(; s2 < s2end; s2 += 4, d2++)
+            {
+                if(s2[3] < 0xff)
+                {
+                    WORD dstLum = d2[0] >> 8;
+                    WORD result = (((dstLum - RANGE[0][3]) * s2[3]) >> 8) + s2[1];
+                    d2[0] = result << 8;
                 }
             }
         }
@@ -660,6 +678,99 @@ STDMETHODIMP CMemSubPic::AlphaBlt(RECT* pSrc, RECT* pDst, SubPicDesc* pTarget)
                     if(ia < 0xff)
                     {
                         *d2 = (((*d2 - RANGE[i+1][3]) * ia) >> 8) + ((s2[0] + s2[src.pitch]) >> 1);
+                    }
+                }
+            }
+        }
+    }
+    else if(dst.type == MSP_NV12)
+    {
+        // Interleaved UV plane (8-bit): U and V alternate per pixel pair.
+        int h2 = h / 2;
+
+        BYTE* ss[2];
+        ss[0] = (BYTE*)src.bits + src.pitch * rs.top + rs.left * 4;
+        ss[1] = ss[0] + 4;
+
+        if(!dst.bitsU)
+        {
+            dst.bitsU = (BYTE*)dst.bits + dst.pitch * dst.h;
+        }
+
+        BYTE* dd[2];
+        dd[0] = dst.bitsU + dst.pitch * rd.top / 2 + rd.left;
+        if(rd.top > rd.bottom)
+        {
+            dd[0] = dst.bitsU + dst.pitch * (rd.top / 2 - 1) + rd.left;
+            dst.pitch = -dst.pitch;
+        }
+        dd[1] = dd[0] + 1;
+
+        for(ptrdiff_t i = 0; i < 2; i++)
+        {
+            s = ss[i];
+            d = dd[i];
+            BYTE* is = ss[1-i];
+            for(ptrdiff_t j = 0; j < h2; j++, s += src.pitch * 2, d += dst.pitch, is += src.pitch * 2)
+            {
+                const BYTE* s2 = s;
+                const BYTE* s2end = s2 + w * 4;
+                BYTE* d2 = d;
+                const BYTE* is2 = is;
+                for(; s2 < s2end; s2 += 8, d2 += 2, is2 += 8)
+                {
+                    unsigned int ia = (s2[3] + s2[3+src.pitch] + is2[3] + is2[3+src.pitch]) >> 2;
+                    if(ia < 0xff)
+                    {
+                        *d2 = (((*d2 - RANGE[i+1][3]) * ia) >> 8) + ((s2[0] + s2[src.pitch]) >> 1);
+                    }
+                }
+            }
+        }
+    }
+    else if(dst.type == MSP_P010 || dst.type == MSP_P016)
+    {
+        // Interleaved UV plane (10/16-bit): blend in 8-bit on the high byte
+        // of each 16-bit U/V sample.
+        int h2 = h / 2;
+
+        BYTE* ss[2];
+        ss[0] = (BYTE*)src.bits + src.pitch * rs.top + rs.left * 4;
+        ss[1] = ss[0] + 4;
+
+        if(!dst.bitsU)
+        {
+            dst.bitsU = (BYTE*)dst.bits + dst.pitch * dst.h;
+        }
+
+        BYTE* dd[2];
+        dd[0] = dst.bitsU + dst.pitch * rd.top / 2 + rd.left * 2;
+        if(rd.top > rd.bottom)
+        {
+            dd[0] = dst.bitsU + dst.pitch * (rd.top / 2 - 1) + rd.left * 2;
+            dst.pitch = -dst.pitch;
+        }
+        dd[1] = dd[0] + 2;
+
+        for(ptrdiff_t i = 0; i < 2; i++)
+        {
+            s = ss[i];
+            d = dd[i];
+            BYTE* is = ss[1-i];
+            for(ptrdiff_t j = 0; j < h2; j++, s += src.pitch * 2, d += dst.pitch, is += src.pitch * 2)
+            {
+                const BYTE* s2 = s;
+                const BYTE* s2end = s2 + w * 4;
+                WORD* d2 = (WORD*)d;
+                const BYTE* is2 = is;
+                for(; s2 < s2end; s2 += 8, d2 += 2, is2 += 8)
+                {
+                    unsigned int ia = (s2[3] + s2[3+src.pitch] + is2[3] + is2[3+src.pitch]) >> 2;
+                    if(ia < 0xff)
+                    {
+                        WORD dstChroma = d2[0] >> 8;
+                        WORD result = (((dstChroma - RANGE[i+1][3]) * ia) >> 8) + ((s2[0] + s2[src.pitch]) >> 1);
+                        d2[0] = result << 8;
                     }
                 }
             }
