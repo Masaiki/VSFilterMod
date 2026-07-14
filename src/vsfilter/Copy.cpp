@@ -32,7 +32,8 @@ extern void ColorConvInit();
 
 void BltLineRGB32(DWORD* d, BYTE* sub, int w, const GUID& subtype)
 {
-    if(subtype == MEDIASUBTYPE_YV12 || subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV)
+    if(subtype == MEDIASUBTYPE_YV12 || subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV
+       || subtype == MEDIASUBTYPE_NV12)
     {
         BYTE* db = (BYTE*)d;
         BYTE* dbtend = db + w;
@@ -43,6 +44,20 @@ void BltLineRGB32(DWORD* d, BYTE* sub, int w, const GUID& subtype)
             {
                 int y = (c2y_yb[sub[0]] + c2y_yg[sub[1]] + c2y_yr[sub[2]] + 0x108000) >> 16;
                 *db = y; // w/o colors
+            }
+        }
+    }
+    else if(subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
+    {
+        WORD* ds = (WORD*)d;
+        WORD* dstend = ds + w;
+
+        for(; ds < dstend; sub += 4, ds++)
+        {
+            if(sub[3] < 0xff)
+            {
+                int y = (c2y_yb[sub[0]] + c2y_yg[sub[1]] + c2y_yr[sub[2]] + 0x108000) >> 16;
+                *ds = y << 8; // store 8-bit luma in the high byte of the 16-bit sample
             }
         }
     }
@@ -146,6 +161,67 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
 
             s1 += 1;
             d1 += 2;
+
+            s1 = stmp;
+            d1 = dtmp;
+        }
+
+        AvgLines8(d, h * 2, dpitch);
+    }
+    else if(subtype == MEDIASUBTYPE_NV12)
+    {
+        // Y plane only (UV is handled separately by the caller, like YV12).
+        // Row-doubling upscale: horizontally interpolate, then average rows.
+        BYTE* s1;
+        BYTE* s2;
+        BYTE* d1;
+
+        for(s1 = s, s2 = s + h * spitch, d1 = d; s1 < s2; d1 += dpitch)
+        {
+            BYTE* stmp = s1 + spitch;
+            BYTE* dtmp = d1 + dpitch;
+
+            for(BYTE* s3 = s1 + (w - 1); s1 < s3; s1 += 1, d1 += 2)
+            {
+                d1[0] = s1[0];
+                d1[1] = (s1[0] + s1[1]) >> 1;
+            }
+
+            d1[0] = d1[1] = s1[0];
+
+            s1 += 1;
+            d1 += 2;
+
+            s1 = stmp;
+            d1 = dtmp;
+        }
+
+        AvgLines8(d, h * 2, dpitch);
+    }
+    else if(subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
+    {
+        // Y plane, 16-bit samples. Horizontally interpolate in 16-bit units,
+        // then average rows (AvgLines8 operates on bytes, which is fine since
+        // each 16-bit sample is a self-contained little-endian WORD).
+        BYTE* s1;
+        BYTE* s2;
+        BYTE* d1;
+
+        for(s1 = s, s2 = s + h * spitch, d1 = d; s1 < s2; d1 += dpitch)
+        {
+            BYTE* stmp = s1 + spitch;
+            BYTE* dtmp = d1 + dpitch;
+
+            for(BYTE* s3 = s1 + (w - 1) * 2; s1 < s3; s1 += 2, d1 += 4)
+            {
+                *(WORD*)d1 = *(WORD*)s1;
+                *(WORD*)(d1 + 2) = (WORD)(((unsigned)*(WORD*)s1 + (unsigned)*(WORD*)(s1 + 2)) >> 1);
+            }
+
+            *(WORD*)d1 = *(WORD*)(d1 + 2) = *(WORD*)s1;
+
+            s1 += 2;
+            d1 += 4;
 
             s1 = stmp;
             d1 = dtmp;
@@ -608,14 +684,6 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 
     if(msg.IsEmpty()) return;
 
-    // The OSD overlay path (BltLineRGB32) does not yet handle NV12/P010/P016
-    // output - its per-row pitch and pixel writes assume packed-8 or RGB.
-    // Skip OSD for these formats rather than corrupt the frame. (Full support
-    // is added in a follow-up.)
-    const GUID& osdSubtype = m_pOutput->CurrentMediaType().subtype;
-    if(osdSubtype == MEDIASUBTYPE_NV12 || osdSubtype == MEDIASUBTYPE_P010 || osdSubtype == MEDIASUBTYPE_P016)
-        return;
-
     HANDLE hOldBitmap = SelectObject(m_hdc, m_hbm);
     HANDLE hOldFont = SelectObject(m_hdc, m_hfont);
 
@@ -638,8 +706,11 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
     int pitchIn = bm.bmWidthBytes;
     int pitchOut = bihOut.biWidth * bihOut.biBitCount >> 3;
 
-    if(subtype == MEDIASUBTYPE_YV12 || subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV)
+    if(subtype == MEDIASUBTYPE_YV12 || subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV
+       || subtype == MEDIASUBTYPE_NV12)
         pitchOut = bihOut.biWidth;
+    else if(subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
+        pitchOut = bihOut.biWidth * 2;
 
     pitchIn = (pitchIn + 3)&~3;
     pitchOut = (pitchOut + 3)&~3;

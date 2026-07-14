@@ -430,7 +430,7 @@ HRESULT CBaseVideoFilter::CheckInputType(const CMediaType* mtIn)
                || mtIn->subtype == MEDIASUBTYPE_RGB565)
            && (mtIn->formattype == FORMAT_VideoInfo
                || mtIn->formattype == FORMAT_VideoInfo2)
-           && bih.biHeight > 0
+           && bih.biHeight != 0
            ? S_OK
            : VFW_E_TYPE_NOT_ACCEPTED;
 }
