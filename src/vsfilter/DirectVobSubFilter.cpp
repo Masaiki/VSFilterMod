@@ -1130,7 +1130,12 @@ STDMETHODIMP CDirectVobSubFilter::put_AspectRatioSettings(CSimpleTextSubtitle::E
 
     if(hr == NOERROR)
     {
-        UpdateSubtitle(true);
+        // PAR compensation only changes the picture aspect ratio handling; it
+        // must not force the default style onto the subtitle stream. Otherwise
+        // applying (or switching away from) the Main property page would
+        // overwrite the script's own Default style with m_defStyle. The new PAR
+        // type is still applied unconditionally inside SetSubtitle().
+        UpdateSubtitle(false);
     }
 
     return hr;

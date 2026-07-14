@@ -615,7 +615,11 @@ STDMETHODIMP CDirectVobSub::put_TextSettings(STSStyle* pDefStyle)
 
     CAutoLock cAutoLock(&m_propsLock);
 
-    if(!memcmp(&m_defStyle, pDefStyle, sizeof(m_defStyle)))
+    // STSStyle contains a CString (fontName); memcmp would compare its internal
+    // pointer instead of the content and almost always falsely report a change,
+    // which would make every property-page Apply force the default style onto
+    // the subtitles. Use the content-based operator== instead.
+    if(m_defStyle == *pDefStyle)
         return S_FALSE;
 
     m_defStyle = *pDefStyle;
