@@ -566,9 +566,10 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
 #endif
 }
 
-HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black)
+HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, int pitchIn)
 {
-    int wIn = in.cx, hIn = in.cy, pitchIn = wIn * bpp >> 3;
+    int wIn = in.cx, hIn = in.cy;
+    if(!pitchIn) pitchIn = wIn * bpp >> 3;
     int wSub = sub.cx, hSub = sub.cy, pitchSub = wSub * bpp >> 3;
     bool fScale2x = wIn * 2 <= wSub;
 

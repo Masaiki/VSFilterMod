@@ -130,7 +130,7 @@ protected:
 
     /* ResX2 */
     CAutoVectorPtr<BYTE> m_pTempPicBuff;
-    HRESULT Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black);
+    HRESULT Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, int pitchIn = 0);
 
     // segment start time, absolute time
     CRefTime m_tPrev;

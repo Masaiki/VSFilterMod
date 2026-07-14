@@ -214,7 +214,22 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
     CSize sub(m_w, m_h);
     CSize in(bihIn.biWidth, abs(bihIn.biHeight));
 
-    if(FAILED(Copy((BYTE*)m_pTempPicBuff, pDataIn, sub, in, bpp, mt.subtype, black)))
+    // YUV FourCC delivered top-down (biHeight < 0): read each input plane
+    // backward from its last row so the scratch buffer ends up byte-identical
+    // to the bottom-up case (low address = top of image), leaving all
+    // downstream stages (AlphaBlt, CopyBuffer, bottom-up output media type)
+    // unchanged. RGB (BI_RGB/BI_BITFIELDS) is excluded: its top-down
+    // orientation is already handled by fInputFlipped/fFlip + CopyBuffer's
+    // output-flip path.
+    bool fInputTopDownYUV = (bihIn.biHeight < 0)
+                            && bihIn.biCompression != BI_RGB
+                            && bihIn.biCompression != BI_BITFIELDS;
+
+    int rowY = in.cx * bpp >> 3;
+    int pitchInY = fInputTopDownYUV ? -rowY : 0;
+    BYTE* pInY = fInputTopDownYUV ? (pDataIn + rowY * (in.cy - 1)) : pDataIn;
+
+    if(FAILED(Copy((BYTE*)m_pTempPicBuff, pInY, sub, in, bpp, mt.subtype, black, pitchInY)))
         return E_FAIL;
 
     if(fYV12)
@@ -227,9 +242,13 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
         in.cy >>= 1;
         BYTE* pSubU = pSubV + (sub.cx * bpp >> 3) * sub.cy;
         BYTE* pInU = pInV + (in.cx * bpp >> 3) * in.cy;
-        if(FAILED(Copy(pSubV, pInV, sub, in, bpp, mt.subtype, 0x80808080)))
+        int rowC = in.cx * bpp >> 3;
+        int pitchInC = fInputTopDownYUV ? -rowC : 0;
+        BYTE* pInVf = fInputTopDownYUV ? (pInV + rowC * (in.cy - 1)) : pInV;
+        BYTE* pInUf = fInputTopDownYUV ? (pInU + rowC * (in.cy - 1)) : pInU;
+        if(FAILED(Copy(pSubV, pInVf, sub, in, bpp, mt.subtype, 0x80808080, pitchInC)))
             return E_FAIL;
-        if(FAILED(Copy(pSubU, pInU, sub, in, bpp, mt.subtype, 0x80808080)))
+        if(FAILED(Copy(pSubU, pInUf, sub, in, bpp, mt.subtype, 0x80808080, pitchInC)))
             return E_FAIL;
     }
     else if(fNV12 || fP010)
@@ -238,7 +257,11 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
         // unlike YV12's separate U/V planes. Copy it in a single pass.
         BYTE* pSubUV = (BYTE*)m_pTempPicBuff + (sub.cx * bpp >> 3) * sub.cy;
         BYTE* pInUV = pDataIn + (in.cx * bpp >> 3) * in.cy;
-        if(FAILED(Copy(pSubUV, pInUV, CSize(sub.cx, sub.cy >> 1), CSize(in.cx, in.cy >> 1), bpp, mt.subtype, blackUV)))
+        int hUV = in.cy >> 1;
+        int rowUV = in.cx * bpp >> 3;
+        int pitchInUV = fInputTopDownYUV ? -rowUV : 0;
+        BYTE* pInUVf = fInputTopDownYUV ? (pInUV + rowUV * (hUV - 1)) : pInUV;
+        if(FAILED(Copy(pSubUV, pInUVf, CSize(sub.cx, sub.cy >> 1), CSize(in.cx, hUV), bpp, mt.subtype, blackUV, pitchInUV)))
             return E_FAIL;
     }
 
