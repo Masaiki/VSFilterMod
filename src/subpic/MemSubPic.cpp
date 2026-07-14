@@ -271,16 +271,20 @@ STDMETHODIMP CMemSubPic::Unlock(RECT* pDirtyRect)
     if(m_rcDirty.IsRectEmpty())
         return S_OK;
 
-    if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV || m_spd.type == MSP_AYUV)
+    if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV
+       || m_spd.type == MSP_NV12 || m_spd.type == MSP_P010 || m_spd.type == MSP_P016
+       || m_spd.type == MSP_AYUV)
     {
         ColorConvInitOther(m_eYCbCrMatrix, m_eYCbCrRange);
 
-        if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV)
+        if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV
+           || m_spd.type == MSP_NV12 || m_spd.type == MSP_P010 || m_spd.type == MSP_P016)
         {
             m_rcDirty.left &= ~1;
             m_rcDirty.right = (m_rcDirty.right + 1)&~1;
 
-            if(m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV)
+            if(m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV
+               || m_spd.type == MSP_NV12 || m_spd.type == MSP_P010 || m_spd.type == MSP_P016)
             {
                 m_rcDirty.top &= ~1;
                 m_rcDirty.bottom = (m_rcDirty.bottom + 1)&~1;
