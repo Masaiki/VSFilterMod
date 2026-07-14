@@ -205,11 +205,14 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
     ExtractBIH(&mt, &bihIn);
 
     bool fYV12 = (mt.subtype == MEDIASUBTYPE_YV12 || mt.subtype == MEDIASUBTYPE_I420 || mt.subtype == MEDIASUBTYPE_IYUV);
-    int bpp = fYV12 ? 8 : bihIn.biBitCount;
-    DWORD black = fYV12 ? 0x10101010 : (bihIn.biCompression == '2YUY') ? 0x80108010 : 0;
+    bool fP010 = (mt.subtype == MEDIASUBTYPE_P010 || mt.subtype == MEDIASUBTYPE_P016);
+    bool fNV12 = (mt.subtype == MEDIASUBTYPE_NV12);
+    int bpp = fYV12 ? 8 : fP010 ? 16 : fNV12 ? 8 : bihIn.biBitCount;
+    DWORD black = fYV12 ? 0x10101010 : fP010 ? 0x10001000 : fNV12 ? 0x10101010 : (bihIn.biCompression == '2YUY') ? 0x80108010 : 0;
+    DWORD blackUV = fYV12 ? 0x80808080 : fP010 ? 0x80008000 : fNV12 ? 0x80808080 : 0;
 
     CSize sub(m_w, m_h);
-    CSize in(bihIn.biWidth, bihIn.biHeight);
+    CSize in(bihIn.biWidth, abs(bihIn.biHeight));
 
     if(FAILED(Copy((BYTE*)m_pTempPicBuff, pDataIn, sub, in, bpp, mt.subtype, black)))
         return E_FAIL;
@@ -227,6 +230,15 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
         if(FAILED(Copy(pSubV, pInV, sub, in, bpp, mt.subtype, 0x80808080)))
             return E_FAIL;
         if(FAILED(Copy(pSubU, pInU, sub, in, bpp, mt.subtype, 0x80808080)))
+            return E_FAIL;
+    }
+    else if(fNV12 || fP010)
+    {
+        // NV12/P010/P016: interleaved UV plane (full width, half height),
+        // unlike YV12's separate U/V planes. Copy it in a single pass.
+        BYTE* pSubUV = (BYTE*)m_pTempPicBuff + (sub.cx * bpp >> 3) * sub.cy;
+        BYTE* pInUV = pDataIn + (in.cx * bpp >> 3) * in.cy;
+        if(FAILED(Copy(pSubUV, pInUV, CSize(sub.cx, sub.cy >> 1), CSize(in.cx, in.cy >> 1), bpp, mt.subtype, blackUV)))
             return E_FAIL;
     }
 
@@ -526,6 +538,9 @@ void CDirectVobSubFilter::InitSubPicQueue()
     m_spd.type = -1;
     if(subtype == MEDIASUBTYPE_YV12) m_spd.type = MSP_YV12;
     else if(subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV) m_spd.type = MSP_IYUV;
+    else if(subtype == MEDIASUBTYPE_NV12) m_spd.type = MSP_NV12;
+    else if(subtype == MEDIASUBTYPE_P010) m_spd.type = MSP_P010;
+    else if(subtype == MEDIASUBTYPE_P016) m_spd.type = MSP_P016;
     else if(subtype == MEDIASUBTYPE_YUY2) m_spd.type = MSP_YUY2;
     else if(subtype == MEDIASUBTYPE_RGB32) m_spd.type = MSP_RGB32;
     else if(subtype == MEDIASUBTYPE_RGB24) m_spd.type = MSP_RGB24;
@@ -533,7 +548,9 @@ void CDirectVobSubFilter::InitSubPicQueue()
     else if(subtype == MEDIASUBTYPE_RGB555) m_spd.type = MSP_RGB15;
     m_spd.w = m_w;
     m_spd.h = m_h;
-    m_spd.bpp = (m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV) ? 8 : bihIn.biBitCount;
+    m_spd.bpp = (m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV || m_spd.type == MSP_NV12) ? 8
+             : (m_spd.type == MSP_P010 || m_spd.type == MSP_P016) ? 16
+             : bihIn.biBitCount;
     m_spd.pitch = m_spd.w * m_spd.bpp >> 3;
     m_spd.bits = (void*)m_pTempPicBuff;
 

@@ -608,6 +608,14 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 
     if(msg.IsEmpty()) return;
 
+    // The OSD overlay path (BltLineRGB32) does not yet handle NV12/P010/P016
+    // output - its per-row pitch and pixel writes assume packed-8 or RGB.
+    // Skip OSD for these formats rather than corrupt the frame. (Full support
+    // is added in a follow-up.)
+    const GUID& osdSubtype = m_pOutput->CurrentMediaType().subtype;
+    if(osdSubtype == MEDIASUBTYPE_NV12 || osdSubtype == MEDIASUBTYPE_P010 || osdSubtype == MEDIASUBTYPE_P016)
+        return;
+
     HANDLE hOldBitmap = SelectObject(m_hdc, m_hbm);
     HANDLE hOldFont = SelectObject(m_hdc, m_hfont);
 

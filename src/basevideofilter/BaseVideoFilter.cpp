@@ -383,6 +383,26 @@ HRESULT CBaseVideoFilter::CopyBuffer(BYTE* pOut, BYTE** ppIn, int w, int h, int 
             }
         }
     }
+    else if(subtype == MEDIASUBTYPE_NV12 || subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
+    {
+        // NV12/P010/P016: Y plane + interleaved UV plane (2 planes). ppIn[1]
+        // (built by the first overload as pIn+pitchIn*h) points at the UV
+        // plane start; ppIn[2] is unused. No format conversion - passthrough.
+        int packsize = (subtype == MEDIASUBTYPE_NV12) ? 1 : 2;
+        int pitchOut = bihOut.biWidth * packsize;
+        int rowBytes = w * packsize;
+        int h2 = h / 2;
+
+        BYTE* pInY = ppIn[0];
+        BYTE* pInUV = ppIn[1];
+        BYTE* pOutY = pOut;
+        BYTE* pOutUV = pOut + pitchOut * h;
+
+        for(int y = 0; y < h; ++y, pInY += pitchIn, pOutY += pitchOut)
+            memcpy(pOutY, pInY, rowBytes);
+        for(int y = 0; y < h2; ++y, pInUV += pitchIn, pOutUV += pitchOut)
+            memcpy(pOutUV, pInUV, rowBytes);
+    }
     else
     {
         return VFW_E_TYPE_NOT_ACCEPTED;
@@ -400,6 +420,9 @@ HRESULT CBaseVideoFilter::CheckInputType(const CMediaType* mtIn)
            && (mtIn->subtype == MEDIASUBTYPE_YV12
                || mtIn->subtype == MEDIASUBTYPE_I420
                || mtIn->subtype == MEDIASUBTYPE_IYUV
+               || mtIn->subtype == MEDIASUBTYPE_NV12
+               || mtIn->subtype == MEDIASUBTYPE_P010
+               || mtIn->subtype == MEDIASUBTYPE_P016
                || mtIn->subtype == MEDIASUBTYPE_YUY2
                || mtIn->subtype == MEDIASUBTYPE_ARGB32
                || mtIn->subtype == MEDIASUBTYPE_RGB32
@@ -425,11 +448,22 @@ HRESULT CBaseVideoFilter::CheckTransform(const CMediaType* mtIn, const CMediaTyp
         if(mtOut->subtype != MEDIASUBTYPE_YV12
            && mtOut->subtype != MEDIASUBTYPE_I420
            && mtOut->subtype != MEDIASUBTYPE_IYUV
+           && mtOut->subtype != MEDIASUBTYPE_NV12
            && mtOut->subtype != MEDIASUBTYPE_YUY2
            && mtOut->subtype != MEDIASUBTYPE_ARGB32
            && mtOut->subtype != MEDIASUBTYPE_RGB32
            && mtOut->subtype != MEDIASUBTYPE_RGB24
            && mtOut->subtype != MEDIASUBTYPE_RGB565)
+            return VFW_E_TYPE_NOT_ACCEPTED;
+    }
+    else if(mtIn->majortype == MEDIATYPE_Video
+            && (mtIn->subtype == MEDIASUBTYPE_NV12
+                || mtIn->subtype == MEDIASUBTYPE_P010
+                || mtIn->subtype == MEDIASUBTYPE_P016))
+    {
+        // passthrough-only: no format conversion to/from these 10/16-bit and
+        // interleaved-chroma formats is implemented.
+        if(mtOut->subtype != mtIn->subtype)
             return VFW_E_TYPE_NOT_ACCEPTED;
     }
     else if(mtIn->majortype == MEDIATYPE_Video
@@ -498,6 +532,9 @@ VIDEO_OUTPUT_FORMATS DefaultFormats[] =
     {&MEDIASUBTYPE_YV12, 3, 12, '21VY'},
     {&MEDIASUBTYPE_I420, 3, 12, '024I'},
     {&MEDIASUBTYPE_IYUV, 3, 12, 'VUYI'},
+    {&MEDIASUBTYPE_NV12, 1, 12, '21VN'},
+    {&MEDIASUBTYPE_P010, 1, 24, '010P'},
+    {&MEDIASUBTYPE_P016, 1, 24, '610P'},
     {&MEDIASUBTYPE_YUY2, 1, 16, '2YUY'},
     {&MEDIASUBTYPE_ARGB32, 1, 32, BI_RGB},
     {&MEDIASUBTYPE_RGB32, 1, 32, BI_RGB},
