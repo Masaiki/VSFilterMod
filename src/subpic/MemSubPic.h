@@ -37,6 +37,11 @@ enum YCbCrRange
     YCbCrRange_TV,
     YCbCrRange_AUTO
 };
+
+CCritSec& GetColorConvLock();
+void ColorConvInitOther(int inYCbCrMatrix, int inYCbCrRange);
+void ColorConvInit();
+
 // CMemSubPic
 
 class CMemSubPic : public ISubPicImpl
@@ -84,5 +89,10 @@ public:
         m_eYCbCrMatrix = inYCbCrMatrix;
         m_eYCbCrRange = inYCbCrRange;
     }
-};
 
+    void GetYCbCrMatrix(int& outYCbCrMatrix, int& outYCbCrRange) const
+    {
+        outYCbCrMatrix = m_eYCbCrMatrix;
+        outYCbCrRange = m_eYCbCrRange;
+    }
+};

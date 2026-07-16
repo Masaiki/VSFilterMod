@@ -130,7 +130,7 @@ protected:
 
     /* ResX2 */
     CAutoVectorPtr<BYTE> m_pTempPicBuff;
-    HRESULT Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, int pitchIn = 0);
+    HRESULT Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, bool fInterleavedChroma = false);
 
     // segment start time, absolute time
     CRefTime m_tPrev;
@@ -195,4 +195,3 @@ public:
     STDMETHODIMP JoinFilterGraph(IFilterGraph* pGraph, LPCWSTR pName);
     HRESULT CheckInputType(const CMediaType* mtIn);
 };
-

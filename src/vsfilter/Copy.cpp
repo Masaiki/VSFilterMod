@@ -28,7 +28,25 @@
 extern int c2y_yb[256];
 extern int c2y_yg[256];
 extern int c2y_yr[256];
-extern void ColorConvInit();
+static void AvgLines16(BYTE* dst, int h, int pitch, int width)
+{
+    if(h <= 1)
+        return;
+
+    BYTE* end = dst + (h - 2) * pitch;
+    for(BYTE* top = dst; top < end; top += pitch * 2)
+    {
+        WORD* row0 = (WORD*)top;
+        WORD* row1 = (WORD*)(top + pitch);
+        WORD* row2 = (WORD*)(top + pitch * 2);
+
+        for(int x = 0; x < width; x++)
+            row1[x] = (WORD)(((unsigned)row0[x] + row2[x] + 1) >> 1);
+    }
+
+    if(!(h & 1))
+        memcpy(dst + (h - 1) * pitch, dst + (h - 2) * pitch, width * sizeof(WORD));
+}
 
 void BltLineRGB32(DWORD* d, BYTE* sub, int w, const GUID& subtype)
 {
@@ -133,7 +151,7 @@ void BltLineRGB32(DWORD* d, BYTE* sub, int w, const GUID& subtype)
 #include <emmintrin.h>
 #endif
 /* ResX2 */
-void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int w, int h)
+void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int w, int h, bool fInterleavedChroma)
 {
 #ifdef _WIN64
     // CPUID from VDub
@@ -170,8 +188,8 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
     }
     else if(subtype == MEDIASUBTYPE_NV12)
     {
-        // Y plane only (UV is handled separately by the caller, like YV12).
-        // Row-doubling upscale: horizontally interpolate, then average rows.
+        // The Y plane contains single-byte samples. The UV plane contains
+        // interleaved two-byte pairs and must interpolate U with U and V with V.
         BYTE* s1;
         BYTE* s2;
         BYTE* d1;
@@ -181,16 +199,33 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
             BYTE* stmp = s1 + spitch;
             BYTE* dtmp = d1 + dpitch;
 
-            for(BYTE* s3 = s1 + (w - 1); s1 < s3; s1 += 1, d1 += 2)
+            if(fInterleavedChroma)
             {
-                d1[0] = s1[0];
-                d1[1] = (s1[0] + s1[1]) >> 1;
+                const int pairs = w / 2;
+                for(int x = 0; x + 1 < pairs; x++, s1 += 2, d1 += 4)
+                {
+                    d1[0] = s1[0];
+                    d1[1] = s1[1];
+                    d1[2] = (s1[0] + s1[2]) >> 1;
+                    d1[3] = (s1[1] + s1[3]) >> 1;
+                }
+
+                if(pairs)
+                {
+                    d1[0] = d1[2] = s1[0];
+                    d1[1] = d1[3] = s1[1];
+                }
             }
+            else
+            {
+                for(BYTE* s3 = s1 + (w - 1); s1 < s3; s1 += 1, d1 += 2)
+                {
+                    d1[0] = s1[0];
+                    d1[1] = (s1[0] + s1[1]) >> 1;
+                }
 
-            d1[0] = d1[1] = s1[0];
-
-            s1 += 1;
-            d1 += 2;
+                d1[0] = d1[1] = s1[0];
+            }
 
             s1 = stmp;
             d1 = dtmp;
@@ -200,9 +235,9 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
     }
     else if(subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
     {
-        // Y plane, 16-bit samples. Horizontally interpolate in 16-bit units,
-        // then average rows (AvgLines8 operates on bytes, which is fine since
-        // each 16-bit sample is a self-contained little-endian WORD).
+        // Interpolate both axes as WORDs; averaging the two bytes independently
+        // loses carries. The UV plane additionally needs pair-wise interpolation
+        // so U is never averaged with V.
         BYTE* s1;
         BYTE* s2;
         BYTE* d1;
@@ -212,22 +247,43 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
             BYTE* stmp = s1 + spitch;
             BYTE* dtmp = d1 + dpitch;
 
-            for(BYTE* s3 = s1 + (w - 1) * 2; s1 < s3; s1 += 2, d1 += 4)
+            if(fInterleavedChroma)
             {
-                *(WORD*)d1 = *(WORD*)s1;
-                *(WORD*)(d1 + 2) = (WORD)(((unsigned)*(WORD*)s1 + (unsigned)*(WORD*)(s1 + 2)) >> 1);
+                const int pairs = w / 2;
+                for(int x = 0; x + 1 < pairs; x++, s1 += 4, d1 += 8)
+                {
+                    WORD* src = (WORD*)s1;
+                    WORD* dst = (WORD*)d1;
+                    dst[0] = src[0];
+                    dst[1] = src[1];
+                    dst[2] = (WORD)(((unsigned)src[0] + src[2]) >> 1);
+                    dst[3] = (WORD)(((unsigned)src[1] + src[3]) >> 1);
+                }
+
+                if(pairs)
+                {
+                    WORD* src = (WORD*)s1;
+                    WORD* dst = (WORD*)d1;
+                    dst[0] = dst[2] = src[0];
+                    dst[1] = dst[3] = src[1];
+                }
             }
+            else
+            {
+                for(BYTE* s3 = s1 + (w - 1) * 2; s1 < s3; s1 += 2, d1 += 4)
+                {
+                    *(WORD*)d1 = *(WORD*)s1;
+                    *(WORD*)(d1 + 2) = (WORD)(((unsigned)*(WORD*)s1 + (unsigned)*(WORD*)(s1 + 2)) >> 1);
+                }
 
-            *(WORD*)d1 = *(WORD*)(d1 + 2) = *(WORD*)s1;
-
-            s1 += 2;
-            d1 += 4;
+                *(WORD*)d1 = *(WORD*)(d1 + 2) = *(WORD*)s1;
+            }
 
             s1 = stmp;
             d1 = dtmp;
         }
 
-        AvgLines8(d, h * 2, dpitch);
+        AvgLines16(d, h * 2, dpitch, w * 2);
     }
     else if(subtype == MEDIASUBTYPE_YUY2)
     {
@@ -566,10 +622,9 @@ void Scale2x(const GUID& subtype, BYTE* d, int dpitch, BYTE* s, int spitch, int 
 #endif
 }
 
-HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, int pitchIn)
+HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, int bpp, const GUID& subtype, DWORD black, bool fInterleavedChroma)
 {
-    int wIn = in.cx, hIn = in.cy;
-    if(!pitchIn) pitchIn = wIn * bpp >> 3;
+    int wIn = in.cx, hIn = in.cy, pitchIn = wIn * bpp >> 3;
     int wSub = sub.cx, hSub = sub.cy, pitchSub = wSub * bpp >> 3;
     bool fScale2x = wIn * 2 <= wSub;
 
@@ -604,7 +659,7 @@ HRESULT CDirectVobSubFilter::Copy(BYTE* pSub, BYTE* pIn, CSize sub, CSize in, in
         {
             Scale2x(subtype,
                     pSub + dpLeft, pitchSub, pIn, pitchIn,
-                    in.cx, (min(j, hSub) - i) >> 1);
+                    in.cx, (min(j, hSub) - i) >> 1, fInterleavedChroma);
 
             for(ptrdiff_t k = min(j, hSub); i < k; i++, pIn += pitchIn, pSub += pitchSub)
             {
@@ -637,8 +692,6 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
 {
     if(!m_hdc || !m_hbm)
         return;
-
-    ColorConvInit();
 
     const GUID& subtype = m_pOutput->CurrentMediaType().subtype;
 
@@ -684,6 +737,19 @@ void CDirectVobSubFilter::PrintMessages(BYTE* pOut)
     }
 
     if(msg.IsEmpty()) return;
+
+    int ycbcrMatrix = YCbCrMatrix_BT601;
+    int ycbcrRange = YCbCrRange_TV;
+    {
+        CAutoLock cAutoLock(&m_csQueueLock);
+        if(m_pSubPicAllocator)
+            m_pSubPicAllocator->GetYCbCrMatrix(ycbcrMatrix, ycbcrRange);
+    }
+
+    // BltLineRGB32 reads the process-global conversion tables. Match the
+    // active subtitle allocator and keep the tables stable while drawing OSD.
+    CAutoLock colorConvLock(&GetColorConvLock());
+    ColorConvInitOther(ycbcrMatrix, ycbcrRange);
 
     HANDLE hOldBitmap = SelectObject(m_hdc, m_hbm);
     HANDLE hOldFont = SelectObject(m_hdc, m_hfont);

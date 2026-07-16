@@ -88,6 +88,12 @@ const int(*RANGE)[4] = YUV_TV;
 static CCritSec s_csColorConv;
 static int s_lastYCbCrMatrix = -1;
 static int s_lastYCbCrRange = -1;
+
+CCritSec& GetColorConvLock()
+{
+    return s_csColorConv;
+}
+
 void ColorConvInitOther(int inYCbCrMatrix, int inYCbCrRange)
 {
     CAutoLock lock(&s_csColorConv);
@@ -271,6 +277,10 @@ STDMETHODIMP CMemSubPic::Unlock(RECT* pDirtyRect)
     if(m_rcDirty.IsRectEmpty())
         return S_OK;
 
+    // The conversion tables are process-global. Keep them stable until this
+    // SubPic has finished converting its entire dirty rectangle.
+    CAutoLock colorConvLock(&s_csColorConv);
+
     if(m_spd.type == MSP_YUY2 || m_spd.type == MSP_YV12 || m_spd.type == MSP_IYUV
        || m_spd.type == MSP_NV12 || m_spd.type == MSP_P010 || m_spd.type == MSP_P016
        || m_spd.type == MSP_AYUV)
@@ -409,6 +419,17 @@ STDMETHODIMP CMemSubPic::AlphaBlt(RECT* pSrc, RECT* pDst, SubPicDesc* pTarget)
         return E_INVALIDARG;
 
     int w = rs.Width(), h = rs.Height();
+
+    // AlphaBlt reads the shared RANGE table. Re-select this SubPic's range and
+    // keep it unchanged for the whole blend, including cached SubPics whose
+    // Unlock conversion happened on an earlier frame.
+    CAutoLock colorConvLock(&s_csColorConv);
+    if(dst.type == MSP_YUY2 || dst.type == MSP_YV12 || dst.type == MSP_IYUV
+       || dst.type == MSP_NV12 || dst.type == MSP_P010 || dst.type == MSP_P016
+       || dst.type == MSP_AYUV)
+    {
+        ColorConvInitOther(m_eYCbCrMatrix, m_eYCbCrRange);
+    }
 
     BYTE* s = (BYTE*)src.bits + src.pitch * rs.top + rs.left * 4;
     BYTE* d = (BYTE*)dst.bits + dst.pitch * rd.top + ((rd.left * dst.bpp) >> 3);

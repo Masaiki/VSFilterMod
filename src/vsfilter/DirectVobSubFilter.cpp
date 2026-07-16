@@ -214,22 +214,9 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
     CSize sub(m_w, m_h);
     CSize in(bihIn.biWidth, abs(bihIn.biHeight));
 
-    // YUV FourCC delivered top-down (biHeight < 0): read each input plane
-    // backward from its last row so the scratch buffer ends up byte-identical
-    // to the bottom-up case (low address = top of image), leaving all
-    // downstream stages (AlphaBlt, CopyBuffer, bottom-up output media type)
-    // unchanged. RGB (BI_RGB/BI_BITFIELDS) is excluded: its top-down
-    // orientation is already handled by fInputFlipped/fFlip + CopyBuffer's
-    // output-flip path.
-    bool fInputTopDownYUV = (bihIn.biHeight < 0)
-                            && bihIn.biCompression != BI_RGB
-                            && bihIn.biCompression != BI_BITFIELDS;
-
-    int rowY = in.cx * bpp >> 3;
-    int pitchInY = fInputTopDownYUV ? -rowY : 0;
-    BYTE* pInY = fInputTopDownYUV ? (pDataIn + rowY * (in.cy - 1)) : pDataIn;
-
-    if(FAILED(Copy((BYTE*)m_pTempPicBuff, pInY, sub, in, bpp, mt.subtype, black, pitchInY)))
+    // YUV DIBs are top-down regardless of the sign of biHeight. The sign is
+    // meaningful only for RGB, whose orientation is handled below.
+    if(FAILED(Copy((BYTE*)m_pTempPicBuff, pDataIn, sub, in, bpp, mt.subtype, black)))
         return E_FAIL;
 
     if(fYV12)
@@ -242,13 +229,9 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
         in.cy >>= 1;
         BYTE* pSubU = pSubV + (sub.cx * bpp >> 3) * sub.cy;
         BYTE* pInU = pInV + (in.cx * bpp >> 3) * in.cy;
-        int rowC = in.cx * bpp >> 3;
-        int pitchInC = fInputTopDownYUV ? -rowC : 0;
-        BYTE* pInVf = fInputTopDownYUV ? (pInV + rowC * (in.cy - 1)) : pInV;
-        BYTE* pInUf = fInputTopDownYUV ? (pInU + rowC * (in.cy - 1)) : pInU;
-        if(FAILED(Copy(pSubV, pInVf, sub, in, bpp, mt.subtype, 0x80808080, pitchInC)))
+        if(FAILED(Copy(pSubV, pInV, sub, in, bpp, mt.subtype, 0x80808080)))
             return E_FAIL;
-        if(FAILED(Copy(pSubU, pInUf, sub, in, bpp, mt.subtype, 0x80808080, pitchInC)))
+        if(FAILED(Copy(pSubU, pInU, sub, in, bpp, mt.subtype, 0x80808080)))
             return E_FAIL;
     }
     else if(fNV12 || fP010)
@@ -257,11 +240,7 @@ HRESULT CDirectVobSubFilter::Transform(IMediaSample* pIn)
         // unlike YV12's separate U/V planes. Copy it in a single pass.
         BYTE* pSubUV = (BYTE*)m_pTempPicBuff + (sub.cx * bpp >> 3) * sub.cy;
         BYTE* pInUV = pDataIn + (in.cx * bpp >> 3) * in.cy;
-        int hUV = in.cy >> 1;
-        int rowUV = in.cx * bpp >> 3;
-        int pitchInUV = fInputTopDownYUV ? -rowUV : 0;
-        BYTE* pInUVf = fInputTopDownYUV ? (pInUV + rowUV * (hUV - 1)) : pInUV;
-        if(FAILED(Copy(pSubUV, pInUVf, CSize(sub.cx, sub.cy >> 1), CSize(in.cx, hUV), bpp, mt.subtype, blackUV, pitchInUV)))
+        if(FAILED(Copy(pSubUV, pInUV, CSize(sub.cx, sub.cy >> 1), CSize(in.cx, in.cy >> 1), bpp, mt.subtype, blackUV, true)))
             return E_FAIL;
     }
 
@@ -580,7 +559,7 @@ void CDirectVobSubFilter::InitSubPicQueue()
     m_pSubPicAllocator = new CMemSubPicAllocator(m_spd.type, CSize(m_w, m_h));
     CComPtr<ISubPicAllocator> pSubPicAllocator = m_pSubPicAllocator;
 
-    CSize video(bihIn.biWidth, bihIn.biHeight), window = video;
+    CSize video(bihIn.biWidth, abs(bihIn.biHeight)), window = video;
     if(AdjustFrameSize(window)) video += video;
     ASSERT(window == CSize(m_w, m_h));
 
@@ -1540,6 +1519,9 @@ void CDirectVobSubFilter::SetSubtitle(ISubStream* pSubStream, bool fApplyDefStyl
 {
     CAutoLock cAutolock(&m_csQueueLock);
 
+    int ycbcrMatrix = YCbCrMatrix_BT601;
+    int ycbcrRange = YCbCrRange_TV;
+
     if(pSubStream)
     {
         CAutoLock cAutolock(&m_csSubLock);
@@ -1601,15 +1583,18 @@ void CDirectVobSubFilter::SetSubtitle(ISubStream* pSubStream, bool fApplyDefStyl
                 pRTS->m_dPARCompensation = 1.00;
             }
 
-            // Honor the script's YCbCr Matrix header on the DirectShow path.
-            // The allocator was previously constructed once with BT601/TV and
-            // never updated, so a script-declared 709/2020 matrix was ignored.
-            if(m_pSubPicAllocator)
-                m_pSubPicAllocator->SetYCbCrMatrix(pRTS->m_eYCbCrMatrix, pRTS->m_eYCbCrRange);
+            ycbcrMatrix = pRTS->m_eYCbCrMatrix;
+            ycbcrRange = pRTS->m_eYCbCrRange;
 
             pRTS->Deinit();
         }
     }
+
+    // Text subtitles can select their own matrix/range. Other providers use
+    // the allocator's historical BT601/TV default, so switching away from a
+    // text stream must also reset values left by the previous provider.
+    if(m_pSubPicAllocator)
+        m_pSubPicAllocator->SetYCbCrMatrix(ycbcrMatrix, ycbcrRange);
 
     if(!fApplyDefStyle)
     {
