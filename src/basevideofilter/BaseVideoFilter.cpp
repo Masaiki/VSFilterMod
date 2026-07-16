@@ -300,8 +300,17 @@ HRESULT CBaseVideoFilter::CopyBuffer(BYTE* pOut, BYTE** ppIn, int w, int h, int 
     {
         h = -h;
         ppIn[0] += pitchIn * (h - 1);
-        ppIn[1] += (pitchIn >> 1) * ((h >> 1) - 1);
-        ppIn[2] += (pitchIn >> 1) * ((h >> 1) - 1);
+
+        if(subtype == MEDIASUBTYPE_I420 || subtype == MEDIASUBTYPE_IYUV || subtype == MEDIASUBTYPE_YV12)
+        {
+            ppIn[1] += (pitchIn >> 1) * ((h >> 1) - 1);
+            ppIn[2] += (pitchIn >> 1) * ((h >> 1) - 1);
+        }
+        else if(subtype == MEDIASUBTYPE_NV12 || subtype == MEDIASUBTYPE_P010 || subtype == MEDIASUBTYPE_P016)
+        {
+            ppIn[1] += pitchIn * ((h >> 1) - 1);
+        }
+
         pitchIn = -pitchIn;
     }
 
@@ -337,6 +346,28 @@ HRESULT CBaseVideoFilter::CopyBuffer(BYTE* pOut, BYTE** ppIn, int w, int h, int 
         else if(bihOut.biCompression == '024I' || bihOut.biCompression == 'VUYI' || bihOut.biCompression == '21VY')
         {
             BitBltFromI420ToI420(w, h, pOut, pOutU, pOutV, bihOut.biWidth, pIn, pInU, pInV, pitchIn);
+        }
+        else if(bihOut.biCompression == '21VN')
+        {
+            const int pitchOut = bihOut.biWidth;
+            const int pitchInUV = pitchIn / 2;
+            BYTE* pOutUV = pOut + pitchOut * h;
+
+            for(int y = 0; y < h; y++)
+                memcpy(pOut + pitchOut * y, pIn + pitchIn * y, w);
+
+            for(int y = 0; y < h / 2; y++)
+            {
+                BYTE* dst = pOutUV + pitchOut * y;
+                BYTE* srcU = pInU + pitchInUV * y;
+                BYTE* srcV = pInV + pitchInUV * y;
+
+                for(int x = 0; x < w / 2; x++)
+                {
+                    dst[x * 2] = srcU[x];
+                    dst[x * 2 + 1] = srcV[x];
+                }
+            }
         }
         else if(bihOut.biCompression == BI_RGB || bihOut.biCompression == BI_BITFIELDS)
         {
