@@ -23,6 +23,7 @@
 #include "..\dsutil\text.h"
 #include <afxdlgs.h>
 #include <atlpath.h>
+#include <limits>
 #include "resource.h"
 #include "..\subtitles\VobSubFile.h"
 #include "..\subtitles\RTS.h"
@@ -117,9 +118,11 @@ CSRIAPI void csri_close(csri_inst *inst)
 
 CSRIAPI int csri_request_fmt(csri_inst *inst, const struct csri_fmt *fmt)
 {
-    if(!inst) return -1;
+    if(!inst || !fmt) return -1;
 
-    if(!fmt->width || !fmt->height)
+    if(fmt->width == 0 || fmt->height == 0
+       || fmt->width > (unsigned)(std::numeric_limits<int>::max)() / 4
+       || fmt->height > (unsigned)(std::numeric_limits<int>::max)())
         return -1;
 
     // Check if pixel format is supported
@@ -144,6 +147,11 @@ CSRIAPI int csri_request_fmt(csri_inst *inst, const struct csri_fmt *fmt)
 
 CSRIAPI void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
 {
+    if(!inst || !frame)
+        return;
+
+    CAutoLock renderLock(inst->cs);
+
     const double arbitrary_framerate = 25.0;
     SubPicDesc spd;
     spd.w = inst->screen_res.cx;
@@ -151,6 +159,12 @@ CSRIAPI void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
     switch(inst->pixfmt)
     {
     case CSRI_F_BGRA:
+        if(!frame->planes[0])
+            return;
+
+        /* VSFilter's native surface is premultiplied BGR with inverted alpha
+         * (255 is transparent). Render directly so CSRI composes in place
+         * without converting through straight alpha. */
         spd.type = MSP_RGBA;
         spd.bpp = 32;
         spd.bits = frame->planes[0];
@@ -194,7 +208,8 @@ CSRIAPI void csri_render(csri_inst *inst, struct csri_frame *frame, double time)
     }
     spd.vidrect = inst->video_rect;
 
-    inst->rts->Render(spd, (REFERENCE_TIME)(time * 10000000), arbitrary_framerate, inst->video_rect);
+    CRect rendered_bbox(0, 0, 0, 0);
+    inst->rts->Render(spd, (REFERENCE_TIME)(time * 10000000), arbitrary_framerate, rendered_bbox);
 }
 
 
@@ -320,4 +335,3 @@ CSRIAPI csri_rend *csri_renderer_next(csri_rend *prev)
 {
     return 0;
 }
-
