@@ -21,6 +21,8 @@
 
 #pragma once
 
+#include <functional>
+
 #include <atlcoll.h>
 #include <wxutil.h>
 #include "TextFile.h"
@@ -314,6 +316,8 @@ public:
     YCbCrRange     m_eYCbCrRange;
 
 public:
+    std::function<void(const CString&)> m_warning_callback;
+
     CSimpleTextSubtitle();
     virtual ~CSimpleTextSubtitle();
 
@@ -390,6 +394,5 @@ public:
     CHtmlColorMap();
 };
 extern CHtmlColorMap g_colors;
-
 
 

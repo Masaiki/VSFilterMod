@@ -1455,6 +1455,12 @@ bool CDirectVobSubFilter::Open()
         if(!pSubStream)
         {
             CAutoPtr<CRenderedTextSubtitle> pRTS(new CRenderedTextSubtitle(&m_csSubLock));
+            if(pRTS)
+            {
+                pRTS->m_warning_callback = [this](const CString& message) {
+                    ShowSystrayNotification(&m_tbid, _T("Subtitle warning"), message);
+                };
+            }
             if(pRTS && pRTS->Open(ret[i].fn, DEFAULT_CHARSET) && pRTS->GetStreamCount() > 0)
             {
                 pSubStream = pRTS.Detach();

@@ -2386,7 +2386,7 @@ STSStyle* CSimpleTextSubtitle::CreateDefaultStyle(int CharSet)
 void CSimpleTextSubtitle::ChangeUnknownStylesToDefault()
 {
     CAtlMap<CString, STSStyle*, CStringElementTraits<CString> > unknown;
-    bool fReport = true;
+    CString unknown_styles;
 
     for(ptrdiff_t i = 0; i < GetCount(); i++)
     {
@@ -2397,11 +2397,13 @@ void CSimpleTextSubtitle::ChangeUnknownStylesToDefault()
         {
             if(!unknown.Lookup(stse.style, val))
             {
-                if(fReport)
+                if(stse.style != _T("Default"))
                 {
-                    CString msg;
-                    msg.Format(_T("Unknown style found: \"%s\", changed to \"Default\"!\n\nPress Cancel to ignore further warnings."), stse.style);
-                    if(MessageBox(NULL, msg, _T("Warning"), MB_OKCANCEL | MB_ICONWARNING) != IDOK) fReport = false;
+                    if(!unknown_styles.IsEmpty())
+                    {
+                        unknown_styles += _T(", ");
+                    }
+                    unknown_styles += stse.style;
                 }
 
                 unknown[stse.style] = NULL;
@@ -2409,6 +2411,13 @@ void CSimpleTextSubtitle::ChangeUnknownStylesToDefault()
 
             stse.style = _T("Default");
         }
+    }
+
+    if(!unknown_styles.IsEmpty() && m_warning_callback)
+    {
+        CString msg;
+        msg.Format(_T("Unknown subtitle styles were replaced with \"Default\": %s"), unknown_styles);
+        m_warning_callback(msg);
     }
 }
 

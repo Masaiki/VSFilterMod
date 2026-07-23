@@ -22,3 +22,4 @@
 #pragma once
 
 extern DWORD CALLBACK SystrayThreadProc(void* pParam);
+extern bool ShowSystrayNotification(SystrayIconData* data, const CString& title, const CString& message);

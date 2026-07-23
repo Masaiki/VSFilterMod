@@ -35,6 +35,9 @@ typedef struct
     IFilterGraph* graph;
     IDirectVobSub* dvs;
     bool fRunOnce, fShowIcon;
+    ATL::CComAutoCriticalSection notification_lock;
+    CString notification_title;
+    CString notification_message;
 } SystrayIconData;
 
 /* This is for graphedit */
