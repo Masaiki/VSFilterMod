@@ -13,7 +13,7 @@
 #undef APSTUDIO_READONLY_SYMBOLS
 
 /////////////////////////////////////////////////////////////////////////////
-// ÐÙÑÀÀûÓï(ÐÙÑÀÀû) resources
+// ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_HUN)
 LANGUAGE LANG_HUNGARIAN, SUBLANG_DEFAULT
@@ -32,12 +32,12 @@ END
 
 #endif    // APSTUDIO_INVOKED
 
-#endif    // ÐÙÑÀÀûÓï(ÐÙÑÀÀû) resources
+#endif    // ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½ï¿½ï¿½) resources
 /////////////////////////////////////////////////////////////////////////////
 
 
 /////////////////////////////////////////////////////////////////////////////
-// Ó¢Óï(ÃÀ¹ú) resources
+// Ó¢ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½) resources
 
 #if !defined(AFX_RESOURCE_DLL) || defined(AFX_TARG_ENU)
 LANGUAGE LANG_ENGLISH, SUBLANG_ENGLISH_US
@@ -117,6 +117,7 @@ BEGIN
     LTEXT           "Credits:\n- SAMI format support by Sanger && Wilowisp of SPKOR\n- Handling of some basic html style modifier tags in SAMI done by [maven]",IDC_STATIC,14,40,218,34
     LTEXT           "- Advanced Text Renderer is using the 'Rasterizer' class \nof Avery Lee's subtitler plugin\n- Command line ppage launcher by @livier",IDC_STATIC,14,74,219,26
     LTEXT           "- Adding hotkeys, Chinese (Taiwan) && Chinese (P.R.C.) localized, Kii Ali <kiiali@cpatch.org>",IDC_STATIC,14,100,206,20
+    LTEXT           "- NV12/P010/P016 && YCbCr Matrix support, csri BGRA rendering,\ndrawing accuracy && crash fixes, Masaiki",IDC_STATIC,14,122,218,20
 END
 
 IDD_DVSCOLORPAGE DIALOGEX 0, 0, 247, 188
@@ -275,7 +276,7 @@ BEGIN
     LTEXT           "Spacing",IDC_STATIC,21,60,26,8
     EDITTEXT        IDC_EDIT3,64,58,34,14,ES_RIGHT | ES_AUTOHSCROLL
     CONTROL         "",IDC_SPIN3,"msctls_updown32",UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,97,58,11,14
-    LTEXT           "Angle (z,°)",IDC_STATIC,21,79,36,8
+    LTEXT           "Angle (z,ï¿½)",IDC_STATIC,21,79,36,8
     EDITTEXT        IDC_EDIT11,64,77,34,14,ES_RIGHT | ES_AUTOHSCROLL | ES_NUMBER
     CONTROL         "",IDC_SPIN10,"msctls_updown32",UDS_WRAP | UDS_SETBUDDYINT | UDS_ALIGNRIGHT | UDS_AUTOBUDDY | UDS_ARROWKEYS | UDS_NOTHOUSANDS,97,77,11,14
     LTEXT           "Scale (x,%)",IDC_STATIC,21,98,39,8
@@ -583,7 +584,7 @@ BEGIN
     IDS_RT_STYLE            "Style2"
 END
 
-#endif    // Ó¢Óï(ÃÀ¹ú) resources
+#endif    // Ó¢ï¿½ï¿½(ï¿½ï¿½ï¿½ï¿½) resources
 /////////////////////////////////////////////////////////////////////////////
 
 
@@ -593,7 +594,7 @@ END
 //
 // Generated from the TEXTINCLUDE 3 resource.
 //
-
+
 /////////////////////////////////////////////////////////////////////////////
 #endif    // not APSTUDIO_INVOKED
 

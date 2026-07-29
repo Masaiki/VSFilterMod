@@ -32,6 +32,7 @@
 
 #ifdef _VSMOD
 #include "..\..\include\VersionMod.h"
+#include "..\..\include\GitVersion.h"
 #else
 #include "..\..\include\Version.h"
 #endif
@@ -804,7 +805,7 @@ bool CDVSAboutPPage::OnMessage(UINT uMsg, WPARAM wParam, LPARAM lParam)
     case WM_INITDIALOG:
     {
 #ifdef _VSMOD
-        SetDlgItemTextA(m_Dlg, IDC_VERSION, "DirectVobSub 2.40 " MAKE_STR(VERSION_ARCH) ", MOD " MAKE_STR(VERSION_MAJOR) "." MAKE_STR(VERSION_MAJOR) " SVN r" MAKE_STR(VERSION_REV) "\nCopyright 2009-2010 VSFilterMod Team");
+        SetDlgItemTextA(m_Dlg, IDC_VERSION, "DirectVobSub 2.40 " MAKE_STR(VERSION_ARCH) ", MOD " MAKE_STR(VERSION_MAJOR) "." MAKE_STR(VERSION_MINOR) " " GIT_REVISION "\nCopyright 2009-2010 VSFilterMod Team");
 #else
         SetDlgItemTextA(m_Dlg, IDC_VERSION, "DirectVobSub 2.40 "MAKE_STR(VERSION_ARCH)"\nCopyright 2001-2010 MPC-HC Team, build by VSFilterMod Team");
 #endif
